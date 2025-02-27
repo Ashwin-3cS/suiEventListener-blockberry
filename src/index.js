@@ -1,12 +1,40 @@
-import axios from "axios";
-import dotenv from "dotenv";
-import path from "path";
 import { fileURLToPath } from "url";
+import path from "path";
+import dotenv from "dotenv";
 import fs from "fs";
+import { createNftEventStreamServer } from "./websocketServer.js";
 
-// Get the directory name properly in ESM
+// Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+main();
+
+async function main() {
+  // Load environment variables
+  const env = loadEnvironment();
+
+  // Create and start the NFT Event Stream server
+  const eventServer = createNftEventStreamServer({
+    port: process.env.WS_PORT || 8080,
+    apiKey: process.env.X_API_KEY,
+    pollInterval: process.env.POLL_INTERVAL
+      ? parseInt(process.env.POLL_INTERVAL)
+      : 30000,
+    collection:
+      process.env.NFT_COLLECTION ||
+      "0x57191e5e5c41166b90a4b7811ad3ec7963708aa537a8438c1761a5d33e2155fd",
+  });
+
+  console.log("NFT Event Stream server initialized and running");
+
+  // Handle application shutdown
+  process.on("SIGINT", () => {
+    console.log("Shutting down server...");
+    eventServer.shutdown();
+    process.exit(0);
+  });
+}
 
 function loadEnvironment() {
   // Try multiple possible locations for the .env file
@@ -61,100 +89,3 @@ function loadEnvironment() {
 
   return process.env;
 }
-
-const main = async () => {
-  // Load environment variables with validation
-  const env = loadEnvironment();
-
-  // Package ID for Kumo NFT collection
-  const kumoPackage =
-    "0x57191e5e5c41166b90a4b7811ad3ec7963708aa537a8438c1761a5d33e2155fd";
-
-  const x_api_key = env.X_API_KEY;
-  console.log("x_api_key available:", x_api_key ? "Yes" : "No");
-
-  // using BlockBerry API
-  const fetchHistoricalEvents = async () => {
-    const options = {
-      method: "POST",
-      url: `https://api.blockberry.one/sui/v1/events/collection/${kumoPackage}%3A%3Akumo%3A%3AKumo`,
-      params: {
-        page: 0,
-        size: 20,
-        orderBy: "DESC",
-        sortBy: "AGE",
-      },
-      headers: {
-        accept: "*/*",
-        "content-type": "application/json",
-        "x-api-key": x_api_key,
-      },
-      data: {
-        eventTypes: ["List"],
-        marketplaces: ["TradePort"], // kumo's marketplace type
-      },
-    };
-
-    try {
-      const response = await axios.request(options);
-      // Log the actual data for debugging
-      console.log(
-        "Historical events fetched:",
-        JSON.stringify(response.data, null, 2)
-      );
-
-      // Check if the response contains the expected data structure
-      if (response.data && response.data.data) {
-        console.log(`Found ${response.data.data.length} events`);
-
-        // Log a sample of the first event if available
-        if (response.data.data.length > 0) {
-          console.log(
-            "Sample event:",
-            JSON.stringify(response.data.data[0], null, 2)
-          );
-        } else {
-          console.log("No events found in the response");
-        }
-      } else {
-        console.log(
-          "Unexpected response structure:",
-          Object.keys(response.data)
-        );
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error("Error fetching historical events:", error.message);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error(
-          "Response data:",
-          JSON.stringify(error.response.data, null, 2)
-        );
-      }
-      throw error;
-    }
-  };
-
-  const events = await fetchHistoricalEvents();
-  console.log("Events retrieval complete");
-  return events;
-};
-
-// Execute main function with proper error handling
-main()
-  .then((result) => {
-    console.log("Successfully initialized event monitoring");
-    // Log the final result structure
-    console.log("Result structure:", Object.keys(result));
-
-    // If there's data in the result, log how many items were found
-    if (result && result.data) {
-      console.log(`Total events found: ${result.data.length}`);
-    }
-  })
-  .catch((error) => {
-    console.error("Error in initialization:", error);
-    process.exit(1);
-  });
